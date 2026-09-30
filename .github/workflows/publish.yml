@@ -1,0 +1,48 @@
+name: Publish to PyPI
+
+# Runs in the PUBLIC repo (meterflowio/meterflow-python) when the mirror pushes a python-v* tag.
+# Auth is PyPI Trusted Publishing: PyPI trusts the OIDC identity "meterflowio/meterflow-python,
+# workflow publish.yml, environment pypi" — no API token is stored anywhere.
+
+on:
+  push:
+    tags: ["python-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install build twine
+      - run: python -m build
+      - run: twine check dist/*
+      - name: Smoke-test the wheel in isolation
+        run: |
+          pip install --no-deps dist/*.whl
+          pip install httpx
+          cd / && python -c "import meterflow; print('smoke ok', meterflow.__version__, meterflow.MeterFlow, meterflow.AsyncMeterFlow)"
+      - name: Refuse a tag that does not match the packaged version
+        if: github.event_name == 'push'
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#python-v}"
+          FILE_VERSION="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' src/meterflow/_version.py)"
+          [ "$TAG_VERSION" = "$FILE_VERSION" ] || { echo "::error::tag ${TAG_VERSION} != _version.py ${FILE_VERSION}"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with: { name: dist, path: dist/ }
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi          # the environment name PyPI's Trusted Publisher entry refers to
+    permissions:
+      id-token: write          # mint the OIDC token PyPI exchanges for a short-lived upload token
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: dist, path: dist/ }
+      - uses: pypa/gh-action-pypi-publish@release/v1

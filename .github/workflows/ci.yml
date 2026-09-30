@@ -1,0 +1,25 @@
+name: CI
+
+# Slim public-repo CI, like meterflow-node's: proves the mirrored artefact builds and imports.
+# Lint, type-check and the test suite already gate every change in the private monorepo.
+
+on:
+  push: { branches: [main] }
+  pull_request:
+
+permissions: { contents: read }
+
+jobs:
+  build-smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ matrix.python-version }}" }
+      - run: pip install build
+      - run: python -m build
+      - run: pip install dist/*.whl
+      - run: cd / && python -c "import meterflow; print('import ok', meterflow.__version__)"
