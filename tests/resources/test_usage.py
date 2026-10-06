@@ -92,3 +92,31 @@ class TestSummary:
         api.reply("GET", "/api/v1/usage/cust-1", body=SUMMARY)
         await async_client.usage.summary("cust-1", to="2026-01-31")
         assert dict(api.last.url.params) == {"to": "2026-01-31"}
+
+
+class TestEvent:
+    """Reading an event back is how a caller learns what the worker decided about a charge."""
+
+    def test_gets_the_event(self, api: FakeApi, client: MeterFlow) -> None:
+        api.reply("GET", "/api/v1/usage/events/evt-1", body=EVENT)
+        result = client.usage.event("evt-1")
+        assert result["id"] == "evt-1"
+
+    def test_carries_the_billing_outcome(self, api: FakeApi, client: MeterFlow) -> None:
+        api.reply("GET", "/api/v1/usage/events/evt-1", body={**EVENT, "processed": True, "billing_outcome": "within_allowance"})
+        result = client.usage.event("evt-1")
+        assert result["processed"] is True
+        assert result["billing_outcome"] == "within_allowance"
+
+    def test_outcome_is_none_before_the_worker_runs(self, api: FakeApi, client: MeterFlow) -> None:
+        api.reply("GET", "/api/v1/usage/events/evt-1", body={**EVENT, "billing_outcome": None})
+        assert client.usage.event("evt-1")["billing_outcome"] is None
+
+    def test_encodes_an_id_that_needs_it(self, api: FakeApi, client: MeterFlow) -> None:
+        api.reply("GET", "/api/v1/usage/events/evt%2F1", body=EVENT)
+        client.usage.event("evt/1")
+        assert api.last.url.raw_path.endswith(b"/api/v1/usage/events/evt%2F1")
+
+    async def test_async(self, api: FakeApi, async_client: AsyncMeterFlow) -> None:
+        api.reply("GET", "/api/v1/usage/events/evt-1", body={**EVENT, "billing_outcome": "charged"})
+        assert (await async_client.usage.event("evt-1"))["billing_outcome"] == "charged"

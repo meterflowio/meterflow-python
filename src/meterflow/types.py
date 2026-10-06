@@ -16,6 +16,7 @@ SubscriptionStatus = Literal["active", "trialing", "past_due", "paused", "cancel
 class CreditBalanceResponse(TypedDict):
     id: str
     project_id: str
+    environment: str
     customer_external_id: str
     balance: str
     total_granted: str
@@ -50,6 +51,7 @@ class CreditGrantRequest(_CreditGrantRequestRequired, total=False):
 class CreditTransactionResponse(TypedDict):
     id: str
     project_id: str
+    environment: str
     customer_external_id: str
     transaction_type: str
     amount: str
@@ -127,6 +129,7 @@ class SubscriptionCreateRequest(_SubscriptionCreateRequestRequired, total=False)
 class SubscriptionResponse(TypedDict):
     id: str
     project_id: str
+    environment: str
     plan_id: str
     customer_external_id: str
     status: str
@@ -160,9 +163,10 @@ class UsageEventRequest(_UsageEventRequestRequired, total=False):
     timestamp: str | None
 
 
-class UsageEventResponse(TypedDict):
+class _UsageEventResponseRequired(TypedDict):
     id: str
     project_id: str
+    environment: str
     meter_id: str
     customer_external_id: str
     event_name: str
@@ -172,6 +176,11 @@ class UsageEventResponse(TypedDict):
     processed: bool
     timestamp: str
     created_at: str
+
+
+class UsageEventResponse(_UsageEventResponseRequired, total=False):
+    billing_outcome: str | None
+    processed_at: str | None
 
 
 class UsageSummaryItem(TypedDict):

@@ -29,6 +29,10 @@ def record_batch_spec(events: list[UsageEventRequest], idempotency_key: str | No
     return RequestSpec("POST", "usage/events/batch", body={"events": events}, idempotency_key=idempotency_key)
 
 
+def event_spec(event_id: str) -> RequestSpec:
+    return RequestSpec("GET", f"usage/events/{encode_path_segment(event_id)}")
+
+
 def summary_spec(customer_id: str, meter_id: str | None, from_: str | None, to: str | None) -> RequestSpec:
     return RequestSpec("GET", f"usage/{encode_path_segment(customer_id)}", query={"meter_id": meter_id, "from_": from_, "to": to})
 
@@ -45,6 +49,16 @@ class UsageResource:
     def record_batch(self, events: list[UsageEventRequest], *, idempotency_key: str | None = None) -> list[UsageEventResponse]:
         """Record up to ``MAX_BATCH_EVENTS`` events in one request. A larger list is refused locally, never sent."""
         result: list[UsageEventResponse] = self._client.request(record_batch_spec(events, idempotency_key))
+        return result
+
+    def event(self, event_id: str) -> UsageEventResponse:
+        """Read one recorded event back, with ``billing_outcome`` — what the worker decided.
+
+        One of ``charged``, ``no_subscription``, ``no_meter_limit``, ``not_metered``,
+        ``within_allowance`` or ``not_deducted``, and ``None`` while ``processed`` is False: the
+        worker runs after ``record`` answers, so poll this to learn what happened to a charge.
+        """
+        result: UsageEventResponse = self._client.request(event_spec(event_id))
         return result
 
     def summary(
@@ -67,6 +81,16 @@ class AsyncUsageResource:
     async def record_batch(self, events: list[UsageEventRequest], *, idempotency_key: str | None = None) -> list[UsageEventResponse]:
         """Record up to ``MAX_BATCH_EVENTS`` events in one request. A larger list is refused locally, never sent."""
         result: list[UsageEventResponse] = await self._client.request(record_batch_spec(events, idempotency_key))
+        return result
+
+    async def event(self, event_id: str) -> UsageEventResponse:
+        """Read one recorded event back, with ``billing_outcome`` — what the worker decided.
+
+        One of ``charged``, ``no_subscription``, ``no_meter_limit``, ``not_metered``,
+        ``within_allowance`` or ``not_deducted``, and ``None`` while ``processed`` is False: the
+        worker runs after ``record`` answers, so poll this to learn what happened to a charge.
+        """
+        result: UsageEventResponse = await self._client.request(event_spec(event_id))
         return result
 
     async def summary(
