@@ -109,6 +109,7 @@ class PlanResponse(TypedDict):
     trial_days: int
     is_active: bool
     is_public: bool
+    is_published: bool
     metadata_: dict[str, Any]
     meter_limits: list[PlanMeterLimitResponse]
     features: list[str]
@@ -183,13 +184,18 @@ class UsageEventResponse(_UsageEventResponseRequired, total=False):
     processed_at: str | None
 
 
-class UsageSummaryItem(TypedDict):
+class _UsageSummaryItemRequired(TypedDict):
     meter_id: str
     meter_name: str
     event_name: str
     aggregation_type: str
     value: str
     event_count: int
+
+
+class UsageSummaryItem(_UsageSummaryItemRequired, total=False):
+    first_event_at: str | None
+    last_event_at: str | None
 
 
 class UsageSummaryResponse(TypedDict):
