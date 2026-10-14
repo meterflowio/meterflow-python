@@ -47,19 +47,21 @@ class TestCreate:
 
 
 class TestList:
-    def test_lists(self, api: FakeApi, client: MeterFlow) -> None:
-        api.reply("GET", "/api/v1/subscriptions", body=[SUB])
-        assert len(client.subscriptions.list()) == 1
-        assert api.last.url.query == b""
+    def test_returns_a_page_rather_than_a_bare_list(self, api: FakeApi, client: MeterFlow) -> None:
+        api.reply("GET", "/api/v1/subscriptions", body={"data": [SUB], "next_cursor": "Y3Vyc29y"})
+        page = client.subscriptions.list()
+        assert len(page["data"]) == 1
+        assert page["next_cursor"] == "Y3Vyc29y"
+        assert api.last.url.query == b"", "no page asked for, no query string"
 
-    def test_passes_customer_id(self, api: FakeApi, client: MeterFlow) -> None:
-        api.reply("GET", "/api/v1/subscriptions", body=[SUB])
-        client.subscriptions.list(customer_id="cust-1")
-        assert dict(api.last.url.params) == {"customer_id": "cust-1"}
+    def test_passes_customer_id_limit_and_cursor(self, api: FakeApi, client: MeterFlow) -> None:
+        api.reply("GET", "/api/v1/subscriptions", body={"data": [SUB], "next_cursor": None})
+        client.subscriptions.list(customer_id="cust-1", limit=25, cursor="Y3Vyc29y")
+        assert dict(api.last.url.params) == {"customer_id": "cust-1", "limit": "25", "cursor": "Y3Vyc29y"}
 
     async def test_async(self, api: FakeApi, async_client: AsyncMeterFlow) -> None:
-        api.reply("GET", "/api/v1/subscriptions", body=[])
-        assert await async_client.subscriptions.list(customer_id="x") == []
+        api.reply("GET", "/api/v1/subscriptions", body={"data": [], "next_cursor": None})
+        assert await async_client.subscriptions.list(customer_id="x") == {"data": [], "next_cursor": None}
 
 
 class TestGet:

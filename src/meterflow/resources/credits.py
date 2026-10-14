@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .._http import RequestSpec, encode_path_segment
-from ..types import CreditBalanceResponse, CreditDeductRequest, CreditGrantRequest, CreditTransactionResponse
+from ..types import CreditBalanceResponse, CreditDeductRequest, CreditGrantRequest, CreditTransactionPage, CreditTransactionResponse
 
 if TYPE_CHECKING:
     from ..client import AsyncMeterFlow, MeterFlow
@@ -23,8 +23,8 @@ def balance_spec(customer_id: str) -> RequestSpec:
     return RequestSpec("GET", f"credits/{encode_path_segment(customer_id)}/balance")
 
 
-def transactions_spec(customer_id: str) -> RequestSpec:
-    return RequestSpec("GET", f"credits/{encode_path_segment(customer_id)}/transactions")
+def transactions_spec(customer_id: str, limit: int | None, cursor: str | None) -> RequestSpec:
+    return RequestSpec("GET", f"credits/{encode_path_segment(customer_id)}/transactions", query={"limit": limit, "cursor": cursor})
 
 
 class CreditsResource:
@@ -46,9 +46,14 @@ class CreditsResource:
         result: CreditBalanceResponse = self._client.request(balance_spec(customer_id))
         return result
 
-    def transactions(self, customer_id: str) -> list[CreditTransactionResponse]:
-        """The full history, newest first."""
-        result: list[CreditTransactionResponse] = self._client.request(transactions_spec(customer_id))
+    def transactions(self, customer_id: str, *, limit: int | None = None, cursor: str | None = None) -> CreditTransactionPage:
+        """One page of the ledger, newest first.
+
+        The ledger grows with every charge, so it is read a page at a time: ``data`` holds the rows
+        and ``next_cursor`` the mark for the page after this one (``None`` on the last). Pass it
+        back as ``cursor`` unchanged — it is opaque, and nothing but this API reads it.
+        """
+        result: CreditTransactionPage = self._client.request(transactions_spec(customer_id, limit, cursor))
         return result
 
 
@@ -71,7 +76,12 @@ class AsyncCreditsResource:
         result: CreditBalanceResponse = await self._client.request(balance_spec(customer_id))
         return result
 
-    async def transactions(self, customer_id: str) -> list[CreditTransactionResponse]:
-        """The full history, newest first."""
-        result: list[CreditTransactionResponse] = await self._client.request(transactions_spec(customer_id))
+    async def transactions(self, customer_id: str, *, limit: int | None = None, cursor: str | None = None) -> CreditTransactionPage:
+        """One page of the ledger, newest first.
+
+        The ledger grows with every charge, so it is read a page at a time: ``data`` holds the rows
+        and ``next_cursor`` the mark for the page after this one (``None`` on the last). Pass it
+        back as ``cursor`` unchanged — it is opaque, and nothing but this API reads it.
+        """
+        result: CreditTransactionPage = await self._client.request(transactions_spec(customer_id, limit, cursor))
         return result

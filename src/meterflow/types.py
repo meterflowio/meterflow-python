@@ -6,7 +6,14 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
 
-EntitlementReason = Literal["no_subscription", "not_in_plan", "hard_limit_reached", "soft_limit_exceeded", "insufficient_credits"]
+EntitlementReason = Literal[
+    "no_subscription",
+    "not_in_plan",
+    "hard_limit_reached",
+    "soft_limit_exceeded",
+    "insufficient_credits",
+    "spend_cap_reached",
+]
 
 FeatureType = Literal["boolean", "metered"]
 
@@ -46,6 +53,19 @@ class CreditGrantRequest(_CreditGrantRequestRequired, total=False):
     description: str | None
     idempotency_key: str | None
     metadata: dict[str, Any]
+
+
+class _CreditTransactionPageRequired(TypedDict):
+    data: list[CreditTransactionResponse]
+
+
+class CreditTransactionPage(_CreditTransactionPageRequired, total=False):
+    """One page of a customer's credit ledger, newest first. `next_cursor` is the opaque mark for the page after this one, and `null` on the
+    last page — pass it back as `cursor` unchanged. The list grows with a customer's traffic, which is why it is paged at all
+    (docs/DECISIONS.md, 2026-10-14).
+    """
+
+    next_cursor: str | None
 
 
 class CreditTransactionResponse(TypedDict):
@@ -108,7 +128,6 @@ class PlanResponse(TypedDict):
     currency: str
     trial_days: int
     is_active: bool
-    is_public: bool
     is_published: bool
     metadata_: dict[str, Any]
     meter_limits: list[PlanMeterLimitResponse]
@@ -117,14 +136,59 @@ class PlanResponse(TypedDict):
     updated_at: str
 
 
+class _PortalLinkRequestRequired(TypedDict):
+    customer_external_id: str
+
+
+class PortalLinkRequest(_PortalLinkRequestRequired, total=False):
+    """One link, for one of the caller's customers. The environment is **not** here: it comes from the API key's prefix, like every other
+    SDK-facing write.
+    """
+
+    return_url: str | None
+    topup_url: str | None
+    expires_in_minutes: int | None
+
+
+class _PortalLinkResponseRequired(TypedDict):
+    url: str
+    token: str
+    expires_at: str
+    customer_external_id: str
+    environment: str
+
+
+class PortalLinkResponse(_PortalLinkResponseRequired, total=False):
+    """The link to send, and what it is for. The signing material is never part of this."""
+
+    return_url: str | None
+    topup_url: str | None
+
+
 class _SubscriptionCreateRequestRequired(TypedDict):
     plan_id: str
     customer_external_id: str
 
 
 class SubscriptionCreateRequest(_SubscriptionCreateRequestRequired, total=False):
+    spend_cap: float | str | None
+    topup_amount: float | str | None
+    max_topups_per_window: int | None
     metadata: dict[str, Any]
     idempotency_key: str | None
+
+
+class _SubscriptionPageRequired(TypedDict):
+    data: list[SubscriptionResponse]
+
+
+class SubscriptionPage(_SubscriptionPageRequired, total=False):
+    """One page of a project's subscriptions, newest first. `next_cursor` is the opaque mark for the page after this one, and `null` on the
+    last page — pass it back as `cursor` unchanged. The list grows with a customer's traffic, which is why it is paged at all
+    (docs/DECISIONS.md, 2026-10-14).
+    """
+
+    next_cursor: str | None
 
 
 class SubscriptionResponse(TypedDict):
@@ -137,6 +201,10 @@ class SubscriptionResponse(TypedDict):
     current_period_start: str
     current_period_end: str | None
     trial_end_date: str | None
+    spend_cap: str | None
+    topup_amount: str | None
+    max_topups_per_window: int | None
+    idempotency_key: str | None
     canceled_at: str | None
     metadata_: dict[str, Any]
     created_at: str
@@ -145,6 +213,9 @@ class SubscriptionResponse(TypedDict):
 
 class SubscriptionUpdateRequest(TypedDict, total=False):
     status: SubscriptionStatus | None
+    spend_cap: float | str | None
+    topup_amount: float | str | None
+    max_topups_per_window: int | None
     metadata: dict[str, Any] | None
 
 
@@ -158,7 +229,7 @@ class _UsageEventRequestRequired(TypedDict):
 
 
 class UsageEventRequest(_UsageEventRequestRequired, total=False):
-    value: float | str
+    value: float | str | None
     properties: dict[str, Any]
     idempotency_key: str | None
     timestamp: str | None
@@ -206,10 +277,41 @@ class UsageSummaryResponse(TypedDict):
     meters: list[UsageSummaryItem]
 
 
+class WebhookDeliveryResponse(TypedDict):
+    id: str
+    webhook_id: str
+    event_type: str
+    payload: dict[str, Any]
+    status: str
+    response_code: int | None
+    response_body: str | None
+    attempts: int
+    next_retry_at: str | None
+    created_at: str
+    completed_at: str | None
+
+
+class WebhookResponse(TypedDict):
+    """Returned on all reads — secret is never included."""
+
+    id: str
+    project_id: str
+    url: str
+    events: list[str]
+    low_balance_threshold: str | None
+    is_active: bool
+    last_triggered_at: str | None
+    failure_count: int
+    metadata_: dict[str, Any]
+    created_at: str
+    updated_at: str
+
+
 __all__ = [
     "CreditBalanceResponse",
     "CreditDeductRequest",
     "CreditGrantRequest",
+    "CreditTransactionPage",
     "CreditTransactionResponse",
     "EntitlementReason",
     "EntitlementResponse",
@@ -217,7 +319,10 @@ __all__ = [
     "FeatureType",
     "PlanMeterLimitResponse",
     "PlanResponse",
+    "PortalLinkRequest",
+    "PortalLinkResponse",
     "SubscriptionCreateRequest",
+    "SubscriptionPage",
     "SubscriptionResponse",
     "SubscriptionStatus",
     "SubscriptionUpdateRequest",
@@ -226,4 +331,6 @@ __all__ = [
     "UsageEventResponse",
     "UsageSummaryItem",
     "UsageSummaryResponse",
+    "WebhookDeliveryResponse",
+    "WebhookResponse",
 ]

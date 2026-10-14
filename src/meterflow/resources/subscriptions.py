@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .._http import RequestSpec, encode_path_segment
-from ..types import SubscriptionCreateRequest, SubscriptionResponse, SubscriptionUpdateRequest
+from ..types import SubscriptionCreateRequest, SubscriptionPage, SubscriptionResponse, SubscriptionUpdateRequest
 
 if TYPE_CHECKING:
     from ..client import AsyncMeterFlow, MeterFlow
@@ -15,8 +15,8 @@ def create_spec(body: SubscriptionCreateRequest, idempotency_key: str | None) ->
     return RequestSpec("POST", "subscriptions", body=body, idempotency_key=idempotency_key)
 
 
-def list_spec(customer_id: str | None) -> RequestSpec:
-    return RequestSpec("GET", "subscriptions", query={"customer_id": customer_id})
+def list_spec(customer_id: str | None, limit: int | None, cursor: str | None) -> RequestSpec:
+    return RequestSpec("GET", "subscriptions", query={"customer_id": customer_id, "limit": limit, "cursor": cursor})
 
 
 def get_spec(subscription_id: str) -> RequestSpec:
@@ -40,9 +40,14 @@ class SubscriptionsResource:
         result: SubscriptionResponse = self._client.request(create_spec(body, idempotency_key))
         return result
 
-    def list(self, *, customer_id: str | None = None) -> list[SubscriptionResponse]:
-        """The project's subscriptions in this key's environment, optionally one customer's."""
-        result: list[SubscriptionResponse] = self._client.request(list_spec(customer_id))
+    def list(self, *, customer_id: str | None = None, limit: int | None = None, cursor: str | None = None) -> SubscriptionPage:
+        """One page of the project's subscriptions in this key's environment, newest first.
+
+        ``data`` holds the rows and ``next_cursor`` the mark for the page after this one (``None``
+        on the last). Pass it back as ``cursor`` unchanged — it is opaque, and nothing but this API
+        reads it. ``customer_id`` narrows the list to one customer.
+        """
+        result: SubscriptionPage = self._client.request(list_spec(customer_id, limit, cursor))
         return result
 
     def get(self, subscription_id: str) -> SubscriptionResponse:
@@ -68,9 +73,14 @@ class AsyncSubscriptionsResource:
         result: SubscriptionResponse = await self._client.request(create_spec(body, idempotency_key))
         return result
 
-    async def list(self, *, customer_id: str | None = None) -> list[SubscriptionResponse]:
-        """The project's subscriptions in this key's environment, optionally one customer's."""
-        result: list[SubscriptionResponse] = await self._client.request(list_spec(customer_id))
+    async def list(self, *, customer_id: str | None = None, limit: int | None = None, cursor: str | None = None) -> SubscriptionPage:
+        """One page of the project's subscriptions in this key's environment, newest first.
+
+        ``data`` holds the rows and ``next_cursor`` the mark for the page after this one (``None``
+        on the last). Pass it back as ``cursor`` unchanged — it is opaque, and nothing but this API
+        reads it. ``customer_id`` narrows the list to one customer.
+        """
+        result: SubscriptionPage = await self._client.request(list_spec(customer_id, limit, cursor))
         return result
 
     async def get(self, subscription_id: str) -> SubscriptionResponse:

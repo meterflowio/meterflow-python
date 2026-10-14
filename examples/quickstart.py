@@ -65,9 +65,9 @@ def main() -> int:
         print(f"   ✓ Event recorded — id={event['id']}\n")
 
         print("5. Listing credit transactions...")
-        transactions = client.credits.transactions(CUSTOMER_ID)
-        print(f"   ✓ Found {len(transactions)} transaction(s)")
-        for tx in transactions:
+        page = client.credits.transactions(CUSTOMER_ID)
+        print(f"   ✓ Found {len(page['data'])} transaction(s) on the first page")
+        for tx in page["data"]:
             print(f"     [{tx['transaction_type']}] amount={tx['amount']} balance_after={tx['balance_after']}")
         print()
 

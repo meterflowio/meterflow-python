@@ -17,7 +17,6 @@ PLAN: dict[str, Any] = {
     "currency": "USD",
     "billing_period": "monthly",
     "trial_days": 0,
-    "is_public": True,
     "is_active": True,
     "metadata_": {},
     "meter_limits": [],

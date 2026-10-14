@@ -85,11 +85,24 @@ class TestBalance:
 
 
 class TestTransactions:
-    def test_lists_the_history(self, api: FakeApi, client: MeterFlow) -> None:
-        api.reply("GET", "/api/v1/credits/cust-1/transactions", body=[TX, TX])
-        assert len(client.credits.transactions("cust-1")) == 2
-        assert api.last.url.query == b""
+    def test_returns_a_page_rather_than_the_whole_history(self, api: FakeApi, client: MeterFlow) -> None:
+        api.reply("GET", "/api/v1/credits/cust-1/transactions", body={"data": [TX, TX], "next_cursor": "Y3Vyc29y"})
+        page = client.credits.transactions("cust-1")
+        assert len(page["data"]) == 2
+        assert page["next_cursor"] == "Y3Vyc29y"
+        assert api.last.url.query == b"", "no page asked for, no query string"
+
+    def test_the_last_page_says_there_is_nothing_after_it(self, api: FakeApi, client: MeterFlow) -> None:
+        api.reply("GET", "/api/v1/credits/cust-1/transactions", body={"data": [], "next_cursor": None})
+        page = client.credits.transactions("cust-1")
+        assert page == {"data": [], "next_cursor": None}
+
+    def test_limit_and_cursor_travel_as_query_parameters(self, api: FakeApi, client: MeterFlow) -> None:
+        api.reply("GET", "/api/v1/credits/cust-1/transactions", body={"data": [TX], "next_cursor": None})
+        client.credits.transactions("cust-1", limit=25, cursor="Y3Vyc29y")
+        assert b"limit=25" in api.last.url.query
+        assert b"cursor=Y3Vyc29y" in api.last.url.query
 
     async def test_async(self, api: FakeApi, async_client: AsyncMeterFlow) -> None:
-        api.reply("GET", "/api/v1/credits/cust-1/transactions", body=[TX])
-        assert (await async_client.credits.transactions("cust-1"))[0]["id"] == "tx-1"
+        api.reply("GET", "/api/v1/credits/cust-1/transactions", body={"data": [TX], "next_cursor": None})
+        assert (await async_client.credits.transactions("cust-1"))["data"][0]["id"] == "tx-1"

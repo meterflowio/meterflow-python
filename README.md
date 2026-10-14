@@ -23,6 +23,7 @@ Track what your customers use, enforce credit balances, gate features, and manag
   - [Usage events](#usage-events)
   - [Subscriptions](#subscriptions)
   - [Plans](#plans)
+  - [Webhook receipts](#webhook-receipts)
   - [Entitlements — ask before you act](#entitlements--ask-before-you-act)
 - [Idempotency — safe retries for writes](#idempotency--safe-retries-for-writes)
 - [Automatic retries](#automatic-retries)
@@ -183,12 +184,25 @@ bal["total_granted"]   # "5250.000000"
 bal["total_consumed"]  # "1705.000000"
 ```
 
-**Transactions** — the full history, newest first:
+**Transactions** — the history, newest first, **a page at a time**:
 
 ```python
-for t in client.credits.transactions("customer_123"):
+page = client.credits.transactions("customer_123")          # 50 rows by default
+for t in page["data"]:
     print(t["transaction_type"], t["amount"], t["balance_after"], t["description"], t["created_at"])
+
+# The whole history, page by page. `next_cursor` is None once there is nothing after it.
+cursor = None
+while True:
+    page = client.credits.transactions("customer_123", limit=200, cursor=cursor)
+    handle(page["data"])
+    cursor = page["next_cursor"]
+    if cursor is None:
+        break
 ```
+
+> **The cursor is opaque.** Pass back exactly what `next_cursor` gave you; do not build one, and do
+> not read anything out of it. `limit` is 1–200 and defaults to 50.
 
 > **Amounts are decimal strings.** Balances and amounts come back as strings (`"3545.000000"`) to avoid floating-point drift on money-like values. Parse deliberately (`decimal.Decimal(...)`) when you need arithmetic. When *sending* an amount, a number or a numeric string are both accepted.
 
@@ -202,7 +216,7 @@ Record an event every time a customer does the thing you charge for. Events are 
 client.usage.record({
     "event_name": "images.generated",
     "customer_external_id": "customer_123",
-    "value": 1,                                   # what the meter aggregates: 1 for counts, seconds/MB/etc. for sums
+    "value": 1,                                   # optional — what the meter aggregates: 1 for counts, seconds/MB/etc. for sums
     "properties": {},                             # free-form context; {} when unused
     "timestamp": "2026-09-30T10:00:00Z",          # optional — defaults to arrival time on the server
 })
@@ -260,7 +274,8 @@ This is usually the difference between fitting a plan and outgrowing it: 1,000 u
 
 Two things to keep in mind:
 
-- **It only helps a `sum` meter.** A `count` meter ignores `value` and counts occurrences, so there each occurrence has to be its own event. `max`, `min` and `unique_count` read `value` as a measurement, not a quantity to add.
+- **It only helps a `sum` meter.** A `count` meter ignores `value` and counts occurrences, so there each occurrence has to be its own event. `max` and `min` read `value` as a measurement, not a quantity to add, and `unique_count` does not read it at all — it counts distinct values of the property its meter names.
+- **`value` is optional.** Leave it out and MeterFlow fills it in: for a `sum`, `max` or `min` meter that names an `aggregation_field`, the numeric value of that property on the event; otherwise `1`. So the event above can be written with `"properties": {"tokens": 1300}` and no `"value"`, as long as the meter's `aggregation_field` is `tokens`. An explicit `value` always wins, a property that is absent or is not a number falls through to `1`, and a negative one is refused with a `422`.
 - **Billing is unchanged.** A metered plan limit charges per unit — the event's `value` — so 100 units cost the same whether they arrived as 100 events or one. You are not rounding anyone's bill by batching.
 
 **Summary** — a customer's usage, broken down by meter:
@@ -301,8 +316,12 @@ print(sub["status"])  # "trialing" if the plan has trial days, else "active"
 **List / get:**
 
 ```python
-everyone = client.subscriptions.list()                          # whole project (in your key's environment)
+page = client.subscriptions.list()                              # whole project (in your key's environment)
 theirs = client.subscriptions.list(customer_id="customer_123")  # one customer
+more = client.subscriptions.list(limit=200, cursor=page["next_cursor"])
+
+for subscription in page["data"]:
+    print(subscription["customer_external_id"], subscription["status"])
 one = client.subscriptions.get(sub["id"])
 ```
 
@@ -339,6 +358,27 @@ plan["features"]        # ["sso", "priority-support"] — the on/off keys check(
 
 Typical use: render your pricing page or signup flow from `plans.list()` so it can never drift from what billing actually enforces.
 
+### Webhook receipts
+
+Webhooks are **read-only** through the SDK too: endpoints are registered in the dashboard, where the signing secret is shown once and never again. What the SDK gives you is the other half — which endpoints exist, and what MeterFlow actually sent them.
+
+```python
+endpoints = client.webhooks.list()                  # this project's endpoints
+receipts = client.webhooks.deliveries(endpoint_id)  # newest first
+receipts[0]["event_type"]     # "usage.recorded"
+receipts[0]["status"]         # "pending" | "retrying" | "success" | "failed"
+receipts[0]["response_code"]  # what your server answered — 200, 500, or None if it never answered
+receipts[0]["attempts"]       # how many times we have tried
+receipts[0]["next_retry_at"]  # when we will try again, or None
+receipts[0]["payload"]        # exactly what we sent
+```
+
+Typical use: answering "did that event reach my endpoint?" from your own tooling instead of opening the dashboard — and reading `response_body` when the answer is no.
+
+Two things to know. The list is capped at the **most recent 100** attempts per endpoint; it is a debugging surface, not an export. And it follows your key: a `mf_test_*` key reads test receipts, a `mf_live_*` key live ones, while the endpoint list itself is shared by both worlds, because an endpoint is configuration and receives events from each.
+
+> This is not the same as [verifying webhooks](#verifying-webhooks) below. That proves a request your server just received really came from us; this reads what we sent.
+
 ### Entitlements — ask before you act
 
 The one call to make **before** doing work for a customer: "may they use this feature — and how much is left?" A **hard** limit says no here; recording usage afterwards never blocks, so an app that skips this call gets an honest ledger but no enforcement.
@@ -347,7 +387,7 @@ The one call to make **before** doing work for a customer: "may they use this fe
 gate = client.entitlements.check("customer_123", "images.generated")
 
 if not gate["allowed"]:
-    # gate["reason"]: "hard_limit_reached" | "no_subscription" | "not_in_plan" | "insufficient_credits"
+    # gate["reason"]: "hard_limit_reached" | "no_subscription" | "not_in_plan" | "insufficient_credits" | "spend_cap_reached"
     return show_upgrade_prompt(gate)  # gate["used"] / gate["included"] / gate["period_end"] are there for the copy
 
 generate_image()
@@ -371,6 +411,30 @@ result["entitlements"]
 ```
 
 Prefer to be told rather than to ask? Subscribe a webhook to `limit.reached` (see below).
+
+### The balance portal — a page you don't have to build
+
+Mint a short-lived link to a MeterFlow-hosted page showing **one** customer's balance and ledger.
+Call it from your server; send the ``url`` to that customer.
+
+```python
+link = client.portal.create_session({
+    "customer_external_id": "customer_123",
+    "topup_url": "https://acme.test/billing",   # your checkout — "buy more" goes here
+    "return_url": "https://acme.test/app",      # where "done" goes
+    "expires_in_minutes": 60,                   # default 60, maximum 1440
+})
+
+send_email(customer.email, f"Your balance: {link['url']}")
+```
+
+The token in that link reads **that one customer's** balance and ledger, in the environment of the
+key you minted it with, and nothing else: it cannot write, cannot name another customer, and is
+refused everywhere else in the API. It is never your API key — never send that to anyone.
+
+> **MeterFlow never takes the payment.** `topup_url` is a link we carry and hand back to the page;
+> what happens there is between you and your own payment provider. Grant the credits with
+> `credits.grant()` when your checkout tells you it was paid.
 
 ## Idempotency — safe retries for writes
 
@@ -486,10 +550,12 @@ Every delivery is a flat JSON object (`Content-Type: application/json`) with two
 | `subscription.created` | a subscription is created | `customer_id`, `plan_id`, `subscription_id`, `status` |
 | `subscription.updated` | a subscription is updated | `customer_id`, `subscription_id`, `status` |
 | `limit.reached` | a customer first reaches a **hard** or **soft** limit's included units this billing period (once per meter per period; metered limits report through `credit.deducted` instead) | `customer_id`, `subscription_id`, `feature` (the meter's `event_name`), `meter_id`, `limit_type`, `included`, `used`, `period_start`, `period_end` |
-| `balance.low` | a deduction takes a customer's balance **down through** this endpoint's `low_balance_threshold` — a crossing, so it fires once and not again while they stay below. Needs the threshold set on the webhook; without one it never fires | `customer_id`, `balance`, `threshold`, `transaction_id` |
+| `balance.low` | a spend takes a customer's balance **down through** this endpoint's `low_balance_threshold` — a crossing, so it fires once and not again while they stay below. Raised by both doors that spend: `credits.deduct` and a metered usage charge. **Both crossing events follow from the endpoint's `low_balance_threshold`: set one and the API adds them, clear it and the API removes them — so a line is the only thing to configure.** | `customer_id`, `balance`, `threshold`, `suggested_topup` (the subscription's `topup_amount`, `null` when unset), `transaction_id` |
 | `balance.exhausted` | a balance reaches zero, **or** a request is refused for want of credits (a deduction returning 402, or `entitlements.check` answering `insufficient_credits`). Unlike `balance.low` this repeats: every refused request is its own blocked request | `customer_id`, `balance`, `reason` (`balance_zero` / `insufficient_credits`), `requested_amount` and `feature` where they apply, `transaction_id` on the zero case |
-| `subscription.renewed` | a billing period rolls forward (the renewer; no `subscription.updated` is emitted for a renewal) | `customer_id`, `subscription_id`, `plan_id`, `current_period_start`, `current_period_end`, `credits_granted` |
+| `subscription.renewed` | a billing period opens — either a paid period rolling forward or a **trial converting** to its first paid period, told apart by `reason` (the renewer emits no `subscription.updated` for either) | `customer_id`, `subscription_id`, `plan_id`, `status`, `reason` (`period_renewed` / `trial_converted`), `current_period_start`, `current_period_end`, `credits_granted` |
 | `subscription.canceled` | a subscription's status becomes canceled — fired **alongside** `subscription.updated`, once, on the call that actually cancels | `customer_id`, `subscription_id`, `plan_id`, `canceled_at` |
+| `balance.topped_up` | a grant takes a customer's balance **up through** this endpoint's `low_balance_threshold` — the upward mirror of `balance.low`, on the same per-endpoint line, so the endpoint told "low" is the one told "recovered". Subscribed together with `balance.low` by setting the threshold, never on its own | `customer_id`, `balance`, `threshold`, `amount`, `transaction_id` |
+| `cap.reached` | a customer's credit spending reaches their subscription's `spend_cap` for the period — once per subscription per period, whether they landed on the cap or were refused by it. A refusal that still leaves headroom is not a reach and does not fire | `customer_id`, `subscription_id`, `cap`, `spent`, `period_start`, `period_end` |
 
 For example, a `credit.granted` delivery:
 
@@ -553,7 +619,7 @@ with MeterFlow(api_key=os.environ["METERFLOW_API_KEY"]) as client:
 
     # Support asks: "what's Ana's situation?"
     balance = client.credits.balance("ana")
-    history = client.credits.transactions("ana")
+    history = client.credits.transactions("ana")["data"]
     usage = client.usage.summary("ana")
     entitlements = client.entitlements.get("ana")
 ```

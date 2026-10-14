@@ -19,8 +19,10 @@ from ._retry import RetryPolicy
 from .resources.credits import AsyncCreditsResource, CreditsResource
 from .resources.entitlements import AsyncEntitlementsResource, EntitlementsResource
 from .resources.plans import AsyncPlansResource, PlansResource
+from .resources.portal import AsyncPortalResource, PortalResource
 from .resources.subscriptions import AsyncSubscriptionsResource, SubscriptionsResource
 from .resources.usage import AsyncUsageResource, UsageResource
+from .resources.webhooks import AsyncWebhooksResource, WebhooksResource
 
 DEFAULT_BASE_URL = "https://api.meter-flow.com/api/v1"
 DEFAULT_TIMEOUT_SECONDS = 30.0
@@ -76,7 +78,9 @@ class MeterFlow(_BaseClient):
         self.usage = UsageResource(self)
         self.subscriptions = SubscriptionsResource(self)
         self.plans = PlansResource(self)
+        self.portal = PortalResource(self)
         self.entitlements = EntitlementsResource(self)
+        self.webhooks = WebhooksResource(self)
 
     def request(self, spec: RequestSpec) -> Any:
         """Internal — used by resource classes; not part of the public API."""
@@ -121,7 +125,9 @@ class AsyncMeterFlow(_BaseClient):
         self.usage = AsyncUsageResource(self)
         self.subscriptions = AsyncSubscriptionsResource(self)
         self.plans = AsyncPlansResource(self)
+        self.portal = AsyncPortalResource(self)
         self.entitlements = AsyncEntitlementsResource(self)
+        self.webhooks = AsyncWebhooksResource(self)
 
     async def request(self, spec: RequestSpec) -> Any:
         """Internal — used by resource classes; not part of the public API."""

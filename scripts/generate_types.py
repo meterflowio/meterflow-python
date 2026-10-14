@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -26,12 +27,20 @@ OPENAPI_PATH = HERE.parent.parent.parent / "docs" / "openapi.json"
 OUTPUT_PATH = HERE.parent / "src" / "meterflow" / "types.py"
 
 # (path prefix, allowed methods) — the public SDK surface, matching the Node SDK resource files.
+# `webhooks` is reads only: an SDK consumer lists the project's endpoints and reads their delivery
+# receipts, while registering, editing and deleting one stays a dashboard (JWT) job. The prefix
+# also catches `GET /webhooks/{id}`, which the SDK does not expose — harmless here, because it
+# answers with the same `WebhookResponse` and so adds no schema of its own.
 SDK_OPERATIONS: dict[str, set[str]] = {
     "/api/v1/credits": {"get", "post"},
     "/api/v1/usage": {"get", "post"},
     "/api/v1/subscriptions": {"get", "post", "patch", "delete"},
     "/api/v1/plans": {"get"},
+    # Only the mint: the portal's two reads belong to the person holding the link, and this SDK
+    # holds a secret key (src/meterflow/resources/portal.py).
+    "/api/v1/portal": {"post"},
     "/api/v1/entitlements": {"get"},
+    "/api/v1/webhooks": {"get"},
 }
 
 REF_PREFIX = "#/components/schemas/"
@@ -113,17 +122,34 @@ def python_type(schema: dict[str, Any]) -> str:
     return "Any"
 
 
+# The line length ruff enforces on this package (pyproject.toml).
+MAX_LINE_LENGTH = 140
+
+
 def docstring(schema: dict[str, Any], indent: str) -> list[str]:
+    """A schema's description as a docstring, wrapped to the line length ruff enforces.
+
+    A one-line docstring is kept on one line; anything longer is filled, because a description
+    written for a human in the API's schema is not written to fit in 140 characters.
+    """
     description = schema.get("description")
     if not description:
         return []
     text = " ".join(str(description).split())
-    return [f'{indent}"""{text}"""', ""]
+    if len(indent) + len(text) + 6 <= MAX_LINE_LENGTH:
+        return [f'{indent}"""{text}"""', ""]
+    # Three characters narrower than the limit: the first line also carries the opening `"""`.
+    body = textwrap.wrap(text, width=MAX_LINE_LENGTH - len(indent) - 3)
+    return [f'{indent}"""{body[0]}', *[f"{indent}{line}" for line in body[1:]], f'{indent}"""', ""]
 
 
 def render_enum(name: str, schema: dict[str, Any]) -> list[str]:
-    values = ", ".join(json.dumps(value) for value in schema["enum"])
-    return [f"{name} = Literal[{values}]", ""]
+    """A string enum as a `Literal` alias — one value per line once the single-line form is too long to lint."""
+    values = [json.dumps(value) for value in schema["enum"]]
+    single_line = f"{name} = Literal[{', '.join(values)}]"
+    if len(single_line) <= MAX_LINE_LENGTH:
+        return [single_line, ""]
+    return [f"{name} = Literal[", *[f"    {value}," for value in values], "]", ""]
 
 
 def render_object(name: str, schema: dict[str, Any]) -> list[str]:
