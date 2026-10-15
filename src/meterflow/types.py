@@ -104,6 +104,7 @@ class EntitlementsResponse(TypedDict):
     environment: str
     subscription_id: str | None
     plan_id: str | None
+    plan_name: str | None
     period_end: str | None
     entitlements: list[EntitlementResponse]
 
