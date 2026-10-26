@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .._http import RequestSpec, encode_path_segment
-from ..types import WebhookDeliveryResponse, WebhookResponse
+from ..types import WebhookDeliveryPage, WebhookDeliveryResponse, WebhookResponse
 
 if TYPE_CHECKING:
     from ..client import AsyncMeterFlow, MeterFlow
@@ -35,6 +35,16 @@ def deliveries_spec(webhook_id: str) -> RequestSpec:
     return RequestSpec("GET", f"webhooks/{encode_path_segment(webhook_id)}/deliveries")
 
 
+def delivery_page_spec(webhook_id: str, limit: int | None, cursor: str | None) -> RequestSpec:
+    """The request for one page of an endpoint's delivery attempts.
+
+    webhook_id: the endpoint whose receipts are read.
+    limit: rows per page, 1–200; None for the API's default.
+    cursor: ``next_cursor`` of the page before; None for the first page.
+    """
+    return RequestSpec("GET", f"webhooks/{encode_path_segment(webhook_id)}/deliveries/page", query={"limit": limit, "cursor": cursor})
+
+
 class WebhooksResource:
     def __init__(self, client: MeterFlow) -> None:
         self._client = client
@@ -52,6 +62,20 @@ class WebhooksResource:
         key reads test receipts, a ``mf_live_*`` key live ones. Another project's webhook is a 404.
         """
         result: DeliveryList = self._client.request(deliveries_spec(webhook_id))
+        return result
+
+    def delivery_page(self, webhook_id: str, *, limit: int | None = None, cursor: str | None = None) -> WebhookDeliveryPage:
+        """One page of an endpoint's delivery attempts, newest first, with no cap on how far back it reads.
+
+        The same rows as ``deliveries()``, in the environment of the key. ``data`` holds the rows and
+        ``next_cursor`` the mark for the page after this one (``None`` on the last); pass it back as
+        ``cursor`` unchanged.
+
+        webhook_id: the endpoint whose receipts are read.
+        limit: rows per page, 1–200; None for the API's default (50).
+        cursor: ``next_cursor`` of the page before; None for the first page.
+        """
+        result: WebhookDeliveryPage = self._client.request(delivery_page_spec(webhook_id, limit, cursor))
         return result
 
 
@@ -72,4 +96,18 @@ class AsyncWebhooksResource:
         key reads test receipts, a ``mf_live_*`` key live ones. Another project's webhook is a 404.
         """
         result: DeliveryList = await self._client.request(deliveries_spec(webhook_id))
+        return result
+
+    async def delivery_page(self, webhook_id: str, *, limit: int | None = None, cursor: str | None = None) -> WebhookDeliveryPage:
+        """One page of an endpoint's delivery attempts, newest first, with no cap on how far back it reads.
+
+        The same rows as ``deliveries()``, in the environment of the key. ``data`` holds the rows and
+        ``next_cursor`` the mark for the page after this one (``None`` on the last); pass it back as
+        ``cursor`` unchanged.
+
+        webhook_id: the endpoint whose receipts are read.
+        limit: rows per page, 1–200; None for the API's default (50).
+        cursor: ``next_cursor`` of the page before; None for the first page.
+        """
+        result: WebhookDeliveryPage = await self._client.request(delivery_page_spec(webhook_id, limit, cursor))
         return result

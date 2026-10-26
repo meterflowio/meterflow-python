@@ -59,9 +59,20 @@ class TestList:
         client.subscriptions.list(customer_id="cust-1", limit=25, cursor="Y3Vyc29y")
         assert dict(api.last.url.params) == {"customer_id": "cust-1", "limit": "25", "cursor": "Y3Vyc29y"}
 
+    def test_passes_a_search_and_repeats_status_once_per_value(self, api: FakeApi, client: MeterFlow) -> None:
+        api.reply("GET", "/api/v1/subscriptions", body={"data": [SUB], "next_cursor": None})
+        client.subscriptions.list(q="acme", status=["past_due", "paused"])
+        assert api.last.url.params.get_list("status") == ["past_due", "paused"]
+        assert api.last.url.params["q"] == "acme"
+
     async def test_async(self, api: FakeApi, async_client: AsyncMeterFlow) -> None:
         api.reply("GET", "/api/v1/subscriptions", body={"data": [], "next_cursor": None})
         assert await async_client.subscriptions.list(customer_id="x") == {"data": [], "next_cursor": None}
+
+    async def test_async_passes_the_filters_too(self, api: FakeApi, async_client: AsyncMeterFlow) -> None:
+        api.reply("GET", "/api/v1/subscriptions", body={"data": [], "next_cursor": None})
+        await async_client.subscriptions.list(q="acme", status=["active"])
+        assert api.last.url.params.multi_items() == [("q", "acme"), ("status", "active")]
 
 
 class TestGet:

@@ -7,6 +7,10 @@ Official Python SDK for [MeterFlow](https://meter-flow.com) — usage-based bill
 
 Track what your customers use, enforce credit balances, gate features, and manage subscriptions with a few lines of code. Fully typed, sync **and** async, one dependency (`httpx`).
 
+- **Flat $29, never a percentage of your revenue.** MeterFlow's [plans](https://meter-flow.com/pricing) follow how many usage events you send, not what your customers pay you.
+- **Works next to any payment provider.** MeterFlow never moves money: your provider charges your customers, and this SDK records their usage, keeps their credit balances and asks whether they may go on. Paddle, Polar, Lemon Squeezy, Chargebee and Razorpay connect from the dashboard; anything else calls `credits.grant` when a payment lands.
+- **Test and live by key prefix.** An `mf_test_` key reads and writes test data, an `mf_live_` key live data — the same code, two worlds that never mix.
+
 ---
 
 ## Contents
@@ -182,7 +186,10 @@ bal = client.credits.balance("customer_123")
 bal["balance"]         # "3545.000000"  ← decimal string, see note below
 bal["total_granted"]   # "5250.000000"
 bal["total_consumed"]  # "1705.000000"
+bal["usage_draws_credits"]  # True | False | None
 ```
+
+`usage_draws_credits` says whether the customer's plan charges usage to this balance: `True` when a metered limit carries a rate, `False` when the plan never does (the balance then moves only through your own `credits.deduct`), `None` without an active or trialing subscription.
 
 **Transactions** — the history, newest first, **a page at a time**:
 
@@ -319,6 +326,7 @@ print(sub["status"])  # "trialing" if the plan has trial days, else "active"
 page = client.subscriptions.list()                              # whole project (in your key's environment)
 theirs = client.subscriptions.list(customer_id="customer_123")  # one customer
 more = client.subscriptions.list(limit=200, cursor=page["next_cursor"])
+behind = client.subscriptions.list(q="acme", status=["past_due", "paused"])  # ids containing "acme", in either status
 
 for subscription in page["data"]:
     print(subscription["customer_external_id"], subscription["status"])
@@ -369,13 +377,17 @@ receipts[0]["event_type"]     # "usage.recorded"
 receipts[0]["status"]         # "pending" | "retrying" | "success" | "failed"
 receipts[0]["response_code"]  # what your server answered — 200, 500, or None if it never answered
 receipts[0]["attempts"]       # how many times we have tried
-receipts[0]["next_retry_at"]  # when we will try again, or None
 receipts[0]["payload"]        # exactly what we sent
+
+page = client.webhooks.delivery_page(endpoint_id, limit=200)                  # the same rows, a page at a time
+older = client.webhooks.delivery_page(endpoint_id, cursor=page["next_cursor"])  # None on the last page
 ```
+
+A delivery is tried up to five times: at once, then after 30 s, 5 min, 30 min and 2 h, each later try scheduled through the queue, where it survives a worker restart. `attempts` counts the tries; the receipt shows `pending` before the first try and `retrying` between tries.
 
 Typical use: answering "did that event reach my endpoint?" from your own tooling instead of opening the dashboard — and reading `response_body` when the answer is no.
 
-Two things to know. The list is capped at the **most recent 100** attempts per endpoint; it is a debugging surface, not an export. And it follows your key: a `mf_test_*` key reads test receipts, a `mf_live_*` key live ones, while the endpoint list itself is shared by both worlds, because an endpoint is configuration and receives events from each.
+Two things to know. `deliveries()` returns the **most recent 100** attempts per endpoint; `delivery_page()` reads further back, one page at a time. And both follow your key: a `mf_test_*` key reads test receipts, a `mf_live_*` key live ones, while the endpoint list itself is shared by both worlds, because an endpoint is configuration and receives events from each.
 
 > This is not the same as [verifying webhooks](#verifying-webhooks) below. That proves a request your server just received really came from us; this reads what we sent.
 
@@ -409,6 +421,8 @@ result["entitlements"]
 # [{"feature": "sso", "feature_type": "boolean", "allowed": True, ...},
 #  {"feature": "images.generated", "feature_type": "metered", "used": "120", "included": 500, "remaining": "380", ...}]
 ```
+
+Each metered row answers for the **next** unit, exactly as `check()` would, so its `allowed` and `reason` match the gate. Reading the list fires no webhook; only `check()` announces `balance.exhausted`.
 
 Prefer to be told rather than to ask? Subscribe a webhook to `limit.reached` (see below).
 
@@ -449,6 +463,8 @@ client.credits.deduct(
 ```
 
 Every write method accepts the keyword: `credits.grant/deduct`, `usage.record/record_batch`, `subscriptions.create/update`. Use a key that identifies the *business operation* (order ID, job ID) — not a random value per attempt, which would defeat the purpose.
+
+MeterFlow remembers a key for 24 hours; after that the same key starts a new operation, so a retry must come within the day (a late subscription retry meets the one-per-customer rule instead of replaying).
 
 **A key is bound to the body you first used it with.** MeterFlow stores a fingerprint of the request alongside the key, so a retry only replays when it is genuinely the same request. Reuse the key with a *different* body and the call is refused with `ConflictError` (409) instead of quietly handing back the original record:
 
@@ -552,7 +568,7 @@ Every delivery is a flat JSON object (`Content-Type: application/json`) with two
 | `limit.reached` | a customer first reaches a **hard** or **soft** limit's included units this billing period (once per meter per period; metered limits report through `credit.deducted` instead) | `customer_id`, `subscription_id`, `feature` (the meter's `event_name`), `meter_id`, `limit_type`, `included`, `used`, `period_start`, `period_end` |
 | `balance.low` | a spend takes a customer's balance **down through** this endpoint's `low_balance_threshold` — a crossing, so it fires once and not again while they stay below. Raised by both doors that spend: `credits.deduct` and a metered usage charge. **Both crossing events follow from the endpoint's `low_balance_threshold`: set one and the API adds them, clear it and the API removes them — so a line is the only thing to configure.** | `customer_id`, `balance`, `threshold`, `suggested_topup` (the subscription's `topup_amount`, `null` when unset), `transaction_id` |
 | `balance.exhausted` | a balance reaches zero, **or** a request is refused for want of credits (a deduction returning 402, or `entitlements.check` answering `insufficient_credits`). Unlike `balance.low` this repeats: every refused request is its own blocked request | `customer_id`, `balance`, `reason` (`balance_zero` / `insufficient_credits`), `requested_amount` and `feature` where they apply, `transaction_id` on the zero case |
-| `subscription.renewed` | a billing period opens — either a paid period rolling forward or a **trial converting** to its first paid period, told apart by `reason` (the renewer emits no `subscription.updated` for either) | `customer_id`, `subscription_id`, `plan_id`, `status`, `reason` (`period_renewed` / `trial_converted`), `current_period_start`, `current_period_end`, `credits_granted` |
+| `subscription.renewed` | a billing period opens — a paid period rolling forward, a **trial converting** to its first paid period, or a canceled subscription **reactivated** after its period lapsed, told apart by `reason` (the renewer emits no `subscription.updated` for the first two) | `customer_id`, `subscription_id`, `plan_id`, `status`, `reason` (`period_renewed` / `trial_converted` / `period_reactivated`), `current_period_start`, `current_period_end`, `credits_granted` |
 | `subscription.canceled` | a subscription's status becomes canceled — fired **alongside** `subscription.updated`, once, on the call that actually cancels | `customer_id`, `subscription_id`, `plan_id`, `canceled_at` |
 | `balance.topped_up` | a grant takes a customer's balance **up through** this endpoint's `low_balance_threshold` — the upward mirror of `balance.low`, on the same per-endpoint line, so the endpoint told "low" is the one told "recovered". Subscribed together with `balance.low` by setting the threshold, never on its own | `customer_id`, `balance`, `threshold`, `amount`, `transaction_id` |
 | `cap.reached` | a customer's credit spending reaches their subscription's `spend_cap` for the period — once per subscription per period, whether they landed on the cap or were refused by it. A refusal that still leaves headroom is not a reach and does not fire | `customer_id`, `subscription_id`, `cap`, `spent`, `period_start`, `period_end` |

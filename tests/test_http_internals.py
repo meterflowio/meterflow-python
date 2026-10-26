@@ -16,6 +16,10 @@ def test_booleans_become_lowercase_strings_like_the_node_sdk() -> None:
     assert build_params({"flag": True, "other": False, "n": 3, "skip": None}) == {"flag": "true", "other": "false", "n": "3"}
 
 
+def test_a_list_is_kept_so_httpx_repeats_its_key() -> None:
+    assert build_params({"status": ["active", "paused"], "q": "acme"}) == {"status": ["active", "paused"], "q": "acme"}
+
+
 def test_request_with_timeout_reaches_the_transport(api: FakeApi, client: MeterFlow) -> None:
     seen: list[httpx.Request] = []
 

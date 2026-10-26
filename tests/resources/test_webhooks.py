@@ -30,7 +30,6 @@ DELIVERY: dict[str, Any] = {
     "response_code": 200,
     "response_body": "ok",
     "attempts": 1,
-    "next_retry_at": None,
     "created_at": "2026-01-01T00:00:00Z",
     "completed_at": "2026-01-01T00:00:01Z",
 }
@@ -80,3 +79,22 @@ class TestDeliveries:
     async def test_async(self, api: FakeApi, async_client: AsyncMeterFlow) -> None:
         api.reply("GET", "/api/v1/webhooks/wh-1/deliveries", body=[DELIVERY])
         assert (await async_client.webhooks.deliveries("wh-1"))[0]["status"] == "success"
+
+
+class TestDeliveryPage:
+    def test_returns_a_page_and_passes_limit_and_cursor(self, api: FakeApi, client: MeterFlow) -> None:
+        api.reply("GET", "/api/v1/webhooks/wh-1/deliveries/page", body={"data": [DELIVERY], "next_cursor": "Y3Vyc29y"})
+        page = client.webhooks.delivery_page("wh-1", limit=25, cursor="abc")
+        assert page["data"][0]["event_type"] == DELIVERY["event_type"]
+        assert page["next_cursor"] == "Y3Vyc29y"
+        assert dict(api.last.url.params) == {"limit": "25", "cursor": "abc"}
+
+    def test_the_first_page_sends_no_query_string(self, api: FakeApi, client: MeterFlow) -> None:
+        api.reply("GET", "/api/v1/webhooks/wh-1/deliveries/page", body={"data": [], "next_cursor": None})
+        client.webhooks.delivery_page("wh-1")
+        assert api.last.url.query == b""
+
+    async def test_async(self, api: FakeApi, async_client: AsyncMeterFlow) -> None:
+        api.reply("GET", "/api/v1/webhooks/wh-1/deliveries/page", body={"data": [DELIVERY], "next_cursor": None})
+        assert (await async_client.webhooks.delivery_page("wh-1", cursor="abc"))["next_cursor"] is None
+        assert api.last.url.params["cursor"] == "abc"

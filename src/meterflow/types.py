@@ -31,6 +31,7 @@ class CreditBalanceResponse(TypedDict):
     version: int
     created_at: str
     updated_at: str
+    usage_draws_credits: bool | None
 
 
 class _CreditDeductRequestRequired(TypedDict):
@@ -119,6 +120,8 @@ class PlanMeterLimitResponse(TypedDict):
 
 
 class PlanResponse(TypedDict):
+    created_by: str | None
+    created_by_email: str | None
     id: str
     project_id: str
     name: str
@@ -261,6 +264,7 @@ class _UsageSummaryItemRequired(TypedDict):
     meter_name: str
     event_name: str
     aggregation_type: str
+    aggregation_field: str | None
     value: str
     event_count: int
 
@@ -278,6 +282,16 @@ class UsageSummaryResponse(TypedDict):
     meters: list[UsageSummaryItem]
 
 
+class _WebhookDeliveryPageRequired(TypedDict):
+    data: list[WebhookDeliveryResponse]
+
+
+class WebhookDeliveryPage(_WebhookDeliveryPageRequired, total=False):
+    """One page of an endpoint's delivery attempts, newest first; pass `next_cursor` back as `cursor` for the next."""
+
+    next_cursor: str | None
+
+
 class WebhookDeliveryResponse(TypedDict):
     id: str
     webhook_id: str
@@ -287,7 +301,6 @@ class WebhookDeliveryResponse(TypedDict):
     response_code: int | None
     response_body: str | None
     attempts: int
-    next_retry_at: str | None
     created_at: str
     completed_at: str | None
 
@@ -295,6 +308,8 @@ class WebhookDeliveryResponse(TypedDict):
 class WebhookResponse(TypedDict):
     """Returned on all reads — secret is never included."""
 
+    created_by: str | None
+    created_by_email: str | None
     id: str
     project_id: str
     url: str
@@ -332,6 +347,7 @@ __all__ = [
     "UsageEventResponse",
     "UsageSummaryItem",
     "UsageSummaryResponse",
+    "WebhookDeliveryPage",
     "WebhookDeliveryResponse",
     "WebhookResponse",
 ]

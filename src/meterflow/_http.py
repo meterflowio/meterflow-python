@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote
@@ -31,7 +32,7 @@ from .errors import (
 
 USER_AGENT = f"meterflow-python/{__version__}"
 
-QueryValue = str | int | float | bool | None
+QueryValue = str | int | float | bool | Sequence[str] | None
 
 # Indirections so tests can make the retry loop instantaneous without touching the clock.
 _sleep = time.sleep
@@ -67,13 +68,18 @@ def build_headers(api_key: str, spec: RequestSpec) -> dict[str, str]:
     return headers
 
 
-def build_params(query: dict[str, QueryValue]) -> dict[str, str]:
-    """Unset (``None``) filters are simply not sent; booleans go as ``true``/``false`` like the Node SDK."""
-    params: dict[str, str] = {}
+def build_params(query: dict[str, QueryValue]) -> dict[str, str | list[str]]:
+    """Unset (``None``) filters are simply not sent; booleans go as ``true``/``false`` like the Node SDK; a list repeats its key."""
+    params: dict[str, str | list[str]] = {}
     for key, value in query.items():
         if value is None:
             continue
-        params[key] = ("true" if value else "false") if isinstance(value, bool) else str(value)
+        if isinstance(value, bool):
+            params[key] = "true" if value else "false"
+        elif isinstance(value, str | int | float):
+            params[key] = str(value)
+        else:
+            params[key] = [str(item) for item in value]
     return params
 
 

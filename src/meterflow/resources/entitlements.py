@@ -35,7 +35,10 @@ class EntitlementsResource:
         self._client = client
 
     def get(self, customer_id: str) -> EntitlementsResponse:
-        """Every feature on the customer's plan, with this period's usage. Empty ``entitlements`` without a subscription."""
+        """Every feature on the customer's plan, with this period's usage; a metered row answers for the next unit, as ``check()`` would.
+
+        Empty ``entitlements`` without a subscription.
+        """
         result: EntitlementsResponse = self._client.request(get_spec(customer_id))
         return result
 
@@ -50,7 +53,10 @@ class AsyncEntitlementsResource:
         self._client = client
 
     async def get(self, customer_id: str) -> EntitlementsResponse:
-        """Every feature on the customer's plan, with this period's usage. Empty ``entitlements`` without a subscription."""
+        """Every feature on the customer's plan, with this period's usage; a metered row answers for the next unit, as ``check()`` would.
+
+        Empty ``entitlements`` without a subscription.
+        """
         result: EntitlementsResponse = await self._client.request(get_spec(customer_id))
         return result
 
