@@ -221,6 +221,21 @@ WRITES: list[tuple[str, str, Callable[[MeterFlow], Any]]] = [
         "/api/v1/credits/deduct",
         lambda client: client.credits.deduct({"customer_external_id": "cust_1", "amount": 10, "metadata": {}}),
     ),
+    (
+        "credits.reserve",
+        "/api/v1/credits/reservations",
+        lambda client: client.credits.reserve({"customer_external_id": "cust_1", "amount": 10}),
+    ),
+    (
+        "credits.confirm_reservation",
+        "/api/v1/credits/reservations/res-1/confirm",
+        lambda client: client.credits.confirm_reservation("res-1"),
+    ),
+    (
+        "credits.release_reservation",
+        "/api/v1/credits/reservations/res-1/release",
+        lambda client: client.credits.release_reservation("res-1"),
+    ),
 ]
 
 
@@ -231,7 +246,8 @@ class TestStaleAfterAWrite:
     ) -> None:
         seen = answer(api, CHECK, ALLOWED)
         other = answer(api, "/api/v1/entitlements/cust_2/check", ALLOWED)
-        api.reply("POST", path, 201, {})
+        # Confirm and release learn the customer from the hold they answer with.
+        api.reply("POST", path, 201, {"customer_external_id": "cust_1"})
         client = make(api)
         client.entitlements.check("cust_1", "images.generated")
         client.entitlements.check("cust_2", "images.generated")
@@ -258,7 +274,7 @@ class TestStaleAfterAWrite:
     async def test_async_writes_make_them_stale_too(self, api: FakeApi) -> None:
         seen = answer(api, CHECK, ALLOWED)
         for _, path, _ in WRITES:
-            api.reply("POST", path, 201, {})
+            api.reply("POST", path, 201, {"customer_external_id": "cust_1"})
         client = make_async(api)
         await client.entitlements.check("cust_1", "images.generated")
         await client.usage.record({"event_name": "x", "customer_external_id": "cust_1"})
@@ -269,7 +285,13 @@ class TestStaleAfterAWrite:
         await client.entitlements.check("cust_1", "images.generated")
         await client.credits.deduct({"customer_external_id": "cust_1", "amount": 10, "metadata": {}})
         await client.entitlements.check("cust_1", "images.generated")
-        assert len(seen) == 5
+        await client.credits.reserve({"customer_external_id": "cust_1", "amount": 10})
+        await client.entitlements.check("cust_1", "images.generated")
+        await client.credits.confirm_reservation("res-1")
+        await client.entitlements.check("cust_1", "images.generated")
+        await client.credits.release_reservation("res-1")
+        await client.entitlements.check("cust_1", "images.generated")
+        assert len(seen) == 8
 
 
 # ── Fallbacks ─────────────────────────────────────────────────────────────────

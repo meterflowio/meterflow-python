@@ -17,6 +17,8 @@ EntitlementReason = Literal[
 
 FeatureType = Literal["boolean", "metered"]
 
+ReservationStatus = Literal["held", "confirmed", "released", "expired"]
+
 SubscriptionStatus = Literal["active", "trialing", "past_due", "paused", "canceled", "expired"]
 
 
@@ -31,6 +33,8 @@ class CreditBalanceResponse(TypedDict):
     version: int
     created_at: str
     updated_at: str
+    reserved: str
+    available: str
     usage_draws_credits: bool | None
 
 
@@ -54,6 +58,45 @@ class CreditGrantRequest(_CreditGrantRequestRequired, total=False):
     description: str | None
     idempotency_key: str | None
     metadata: dict[str, Any]
+
+
+class CreditReservationConfirmRequest(TypedDict, total=False):
+    """Settle a hold: take some or all of it from the balance, and free the rest."""
+
+    amount: float | str | None
+
+
+class _CreditReservationRequestRequired(TypedDict):
+    customer_external_id: str
+    amount: float | str
+
+
+class CreditReservationRequest(_CreditReservationRequestRequired, total=False):
+    """Hold part of a customer's balance for a while, so other spending cannot take it first."""
+
+    ttl_seconds: int
+    description: str | None
+    idempotency_key: str | None
+    metadata: dict[str, Any]
+
+
+class CreditReservationResponse(TypedDict):
+    """A hold on part of a customer's balance, and how it ended."""
+
+    id: str
+    project_id: str
+    environment: str
+    customer_external_id: str
+    amount: str
+    status: ReservationStatus
+    expires_at: str
+    description: str | None
+    metadata_: dict[str, Any]
+    idempotency_key: str | None
+    confirmed_amount: str | None
+    transaction_id: str | None
+    created_at: str
+    settled_at: str | None
 
 
 class _CreditTransactionPageRequired(TypedDict):
@@ -327,6 +370,9 @@ __all__ = [
     "CreditBalanceResponse",
     "CreditDeductRequest",
     "CreditGrantRequest",
+    "CreditReservationConfirmRequest",
+    "CreditReservationRequest",
+    "CreditReservationResponse",
     "CreditTransactionPage",
     "CreditTransactionResponse",
     "EntitlementReason",
@@ -337,6 +383,7 @@ __all__ = [
     "PlanResponse",
     "PortalLinkRequest",
     "PortalLinkResponse",
+    "ReservationStatus",
     "SubscriptionCreateRequest",
     "SubscriptionPage",
     "SubscriptionResponse",

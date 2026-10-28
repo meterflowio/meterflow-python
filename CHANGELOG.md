@@ -3,6 +3,25 @@
 Notable changes to `meterflow` (PyPI). Dates are the day the version was cut; what is published is
 in [the project roadmap](https://github.com/Donovantxy/MeterFlow/blob/main/docs/ROADMAP.md#where-we-are-2026-10-07).
 
+## 0.6.0 — 2026-10-28
+
+**`credits.reserve()` holds credits for a long job, then `confirm_reservation()` or `release_reservation()` settles the hold.**
+`reserve(body, idempotency_key=)` holds `body["amount"]` for `body["ttl_seconds"]` (default 300, at most 86,400). The
+balance does not move, but nothing else can spend those credits. `confirm_reservation(id, {"amount": …})` takes all or
+part of the hold as one normal `deduct` ledger row and frees the rest; with no body it takes the whole hold.
+`release_reservation(id)` frees all of it. `reservation(id)` reads a hold's `status`: `held`, `confirmed`, `released`,
+or `expired` once it passes `expires_at`. Each write makes that customer's cached entitlement answers stale.
+`AsyncMeterFlow` has the same four methods.
+
+**What changes for code you already have:**
+- `credits.balance()` now also returns `reserved` and `available` (`balance` less `reserved`). Without reservations
+  `available` equals `balance`.
+- While a customer holds reservations, `credits.deduct()` raises `InsufficientCreditsError` (402) once the
+  **available** credits cannot cover the amount, even if the balance can. Overage charged by a metered plan, and
+  `entitlements.check()`'s `insufficient_credits` answer, also leave held credits alone.
+- A `credits.deduct()` that loses a race with a concurrent write is now retried by the API before it answers. Before,
+  it answered `ConflictError` (409) on the first race.
+
 ## 0.5.0 — 2026-10-28
 
 **`entitlements.check()` and `get()` cache their answers and keep answering through an outage.**
