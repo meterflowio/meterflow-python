@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .._entitlement_cache import expire_entitlements
 from .._http import RequestSpec, encode_path_segment
 from ..types import CreditBalanceResponse, CreditDeductRequest, CreditGrantRequest, CreditTransactionPage, CreditTransactionResponse
 
@@ -32,13 +33,18 @@ class CreditsResource:
         self._client = client
 
     def grant(self, body: CreditGrantRequest, *, idempotency_key: str | None = None) -> CreditTransactionResponse:
-        """Add credits (plan renewals, top-ups, goodwill). Returns the ledger line."""
+        """Add credits (plan renewals, top-ups, goodwill). Returns the ledger line. The customer's cached entitlement answers go stale."""
         result: CreditTransactionResponse = self._client.request(grant_spec(body, idempotency_key))
+        expire_entitlements(self._client.entitlement_cache, [body["customer_external_id"]])
         return result
 
     def deduct(self, body: CreditDeductRequest, *, idempotency_key: str | None = None) -> CreditTransactionResponse:
-        """Remove credits. Raises ``InsufficientCreditsError`` (402) rather than take the customer below zero."""
+        """Remove credits. Raises ``InsufficientCreditsError`` (402) rather than take the customer below zero.
+
+        The customer's cached entitlement answers go stale.
+        """
         result: CreditTransactionResponse = self._client.request(deduct_spec(body, idempotency_key))
+        expire_entitlements(self._client.entitlement_cache, [body["customer_external_id"]])
         return result
 
     def balance(self, customer_id: str) -> CreditBalanceResponse:
@@ -62,13 +68,18 @@ class AsyncCreditsResource:
         self._client = client
 
     async def grant(self, body: CreditGrantRequest, *, idempotency_key: str | None = None) -> CreditTransactionResponse:
-        """Add credits (plan renewals, top-ups, goodwill). Returns the ledger line."""
+        """Add credits (plan renewals, top-ups, goodwill). Returns the ledger line. The customer's cached entitlement answers go stale."""
         result: CreditTransactionResponse = await self._client.request(grant_spec(body, idempotency_key))
+        expire_entitlements(self._client.entitlement_cache, [body["customer_external_id"]])
         return result
 
     async def deduct(self, body: CreditDeductRequest, *, idempotency_key: str | None = None) -> CreditTransactionResponse:
-        """Remove credits. Raises ``InsufficientCreditsError`` (402) rather than take the customer below zero."""
+        """Remove credits. Raises ``InsufficientCreditsError`` (402) rather than take the customer below zero.
+
+        The customer's cached entitlement answers go stale.
+        """
         result: CreditTransactionResponse = await self._client.request(deduct_spec(body, idempotency_key))
+        expire_entitlements(self._client.entitlement_cache, [body["customer_external_id"]])
         return result
 
     async def balance(self, customer_id: str) -> CreditBalanceResponse:

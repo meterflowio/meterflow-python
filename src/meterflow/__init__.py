@@ -6,6 +6,7 @@ client = MeterFlow(api_key="mf_live_...")
 client.credits.grant({"customer_external_id": "customer_123", "amount": 5000, "metadata": {}})
 """
 
+from ._entitlement_cache import EntitlementDefault, EntitlementFallbackContext
 from ._version import __version__
 from .client import AsyncMeterFlow, ClientOptions, MeterFlow
 from .errors import (
@@ -20,6 +21,7 @@ from .errors import (
     ValidationError,
     ValidationFieldError,
 )
+from .resources.entitlements import EntitlementCheck, EntitlementList
 from .resources.usage import MAX_BATCH_EVENTS
 from .webhook import verify_webhook
 
@@ -39,5 +41,9 @@ __all__ = [
     "RateLimitError",
     "ServerError",
     "MAX_BATCH_EVENTS",
+    "EntitlementCheck",
+    "EntitlementList",
+    "EntitlementDefault",
+    "EntitlementFallbackContext",
     "verify_webhook",
 ]

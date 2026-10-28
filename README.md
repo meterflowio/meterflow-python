@@ -138,6 +138,9 @@ client = MeterFlow(
     timeout=30.0,                                   # optional — per-request timeout in seconds (default 30)
     retries=3,                                      # optional — automatic retries (default 3, 0 disables)
     transport=None,                                 # optional — an httpx transport (tests, proxies)
+    entitlements_cache=True,                        # optional — reuse entitlement answers for their max-age (default on)
+    entitlement_defaults={"*": "deny"},             # optional — what check() answers while MeterFlow is unreachable
+    on_error=None,                                  # optional — told when an entitlements call answers from a fallback
 )
 ```
 
@@ -411,7 +414,7 @@ client.usage.record({"event_name": "images.generated", "customer_external_id": "
 - A **soft** limit answers `allowed: True` with `reason: "soft_limit_exceeded"` — let it through, nudge the upgrade.
 - A **metered** limit stays allowed while the customer's credits cover the overage; otherwise `insufficient_credits`.
 - `allowed: False` is a normal returned answer, never an exception. A feature key the project does not know at all is a `NotFoundError` — that is a typo, not a plan.
-- The answer carries `Cache-Control: private, max-age=15`; on hot paths cache it per customer for a few seconds rather than calling on every request.
+- The SDK reuses an answer for the `Cache-Control: max-age` it came with (15 s today), per customer, feature and `quantity` — `allowed: False` included. See [When MeterFlow can't be reached](#when-meterflow-cant-be-reached).
 
 **All of them at once** — for a settings or pricing screen:
 
@@ -425,6 +428,31 @@ result["entitlements"]
 Each metered row answers for the **next** unit, exactly as `check()` would, so its `allowed` and `reason` match the gate. Reading the list fires no webhook; only `check()` announces `balance.exhausted`.
 
 Prefer to be told rather than to ask? Subscribe a webhook to `limit.reached` (see below).
+
+#### When MeterFlow can't be reached
+
+A MeterFlow blip should never take your product down with it. Three things keep `check()` answering, on `MeterFlow` and `AsyncMeterFlow` alike:
+
+- **The cache.** Answers from `check()` and `get()` are reused for the `max-age` the API sends (15 s), per client, up to 1,000 of them. A response without `Cache-Control` is never cached. A successful `usage.record()`, `usage.record_batch()`, `credits.grant()` or `credits.deduct()` makes that customer's answers stale, so the next `check()` asks again. `entitlements_cache=False` turns the cache off.
+- **The last answer.** When the API cannot be reached — a network error, a timeout, a 5xx or a 429, once the retries are spent — a call returns its last answer for that customer and feature, past its age, with `"stale": True`.
+- **Your defaults.** With no earlier answer, `check()` returns your `entitlement_defaults` entry for the feature, else its `"*"` entry: `{"feature", "feature_type": None, "allowed", "reason": "offline_default"}`. With neither, it raises as before. `get()` has no default: a whole plan cannot be guessed.
+
+```python
+from meterflow import EntitlementFallbackContext, MeterFlow
+
+def warn(error: Exception, context: EntitlementFallbackContext) -> None:
+    log.warning("meterflow fallback %s for %s / %s: %s", context.fallback, context.customer_id, context.feature, error)
+
+client = MeterFlow(
+    api_key=os.environ["METERFLOW_API_KEY"],
+    timeout=2.0,  # a gate on your hot path should give up fast
+    retries=1,
+    entitlement_defaults={"images.generated": "allow", "*": "deny"},
+    on_error=warn,
+)
+```
+
+A 401, 403, 404 or 422 is an answer, not an outage: it is raised, never replaced by a fallback. `on_error` is called before a fallback is used; anything it raises is ignored. `check()` returns an `EntitlementCheck` and `get()` an `EntitlementList` (both exported from `meterflow`): the API's types, widened for `stale` and `offline_default`.
 
 ### The balance portal — a page you don't have to build
 

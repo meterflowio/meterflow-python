@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .._entitlement_cache import expire_entitlements
 from .._http import RequestSpec, encode_path_segment
 from ..errors import PayloadTooLargeError
 from ..types import UsageEventRequest, UsageEventResponse, UsageSummaryResponse
@@ -42,13 +43,18 @@ class UsageResource:
         self._client = client
 
     def record(self, body: UsageEventRequest, *, idempotency_key: str | None = None) -> UsageEventResponse:
-        """Record one event. Returns immediately (``processed: False``); totals materialise moments later."""
+        """Record one event. Returns immediately (``processed: False``); totals materialise moments later.
+
+        The customer's cached entitlement answers go stale.
+        """
         result: UsageEventResponse = self._client.request(record_spec(body, idempotency_key))
+        expire_entitlements(self._client.entitlement_cache, [body["customer_external_id"]])
         return result
 
     def record_batch(self, events: list[UsageEventRequest], *, idempotency_key: str | None = None) -> list[UsageEventResponse]:
         """Record up to ``MAX_BATCH_EVENTS`` events in one request. A larger list is refused locally, never sent."""
         result: list[UsageEventResponse] = self._client.request(record_batch_spec(events, idempotency_key))
+        expire_entitlements(self._client.entitlement_cache, [event["customer_external_id"] for event in events])
         return result
 
     def event(self, event_id: str) -> UsageEventResponse:
@@ -74,13 +80,18 @@ class AsyncUsageResource:
         self._client = client
 
     async def record(self, body: UsageEventRequest, *, idempotency_key: str | None = None) -> UsageEventResponse:
-        """Record one event. Returns immediately (``processed: False``); totals materialise moments later."""
+        """Record one event. Returns immediately (``processed: False``); totals materialise moments later.
+
+        The customer's cached entitlement answers go stale.
+        """
         result: UsageEventResponse = await self._client.request(record_spec(body, idempotency_key))
+        expire_entitlements(self._client.entitlement_cache, [body["customer_external_id"]])
         return result
 
     async def record_batch(self, events: list[UsageEventRequest], *, idempotency_key: str | None = None) -> list[UsageEventResponse]:
         """Record up to ``MAX_BATCH_EVENTS`` events in one request. A larger list is refused locally, never sent."""
         result: list[UsageEventResponse] = await self._client.request(record_batch_spec(events, idempotency_key))
+        expire_entitlements(self._client.entitlement_cache, [event["customer_external_id"] for event in events])
         return result
 
     async def event(self, event_id: str) -> UsageEventResponse:

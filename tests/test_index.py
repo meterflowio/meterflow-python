@@ -21,6 +21,10 @@ def test_public_surface() -> None:
         "RateLimitError",
         "ServerError",
         "MAX_BATCH_EVENTS",
+        "EntitlementCheck",
+        "EntitlementList",
+        "EntitlementDefault",
+        "EntitlementFallbackContext",
         "verify_webhook",
     }
     assert set(meterflow.__all__) == expected
